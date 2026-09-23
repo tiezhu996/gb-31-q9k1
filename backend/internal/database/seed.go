@@ -119,8 +119,8 @@ func Seed(ctx context.Context, db *mongo.Database, logger *slog.Logger) error {
 		var demoUser model.User
 		_ = users.FindOne(ctx, bson.M{"username": "demo"}).Decode(&demoUser)
 		meetups := []model.Meetup{
-			{CreatorID: demoUser.ID, Title: "周六世纪公园遛狗局", Description: "带狗狗一起撒欢，欢迎柴犬柯基金毛", City: "上海", Location: "世纪公园2号门", MeetTime: time.Now().Add(72 * time.Hour), MaxPeople: 8, Status: constants.MeetupStatusOpen, Participants: []model.MeetupParticipant{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
-			{CreatorID: demoUser.ID, Title: "滨江夜跑遛狗", Description: "晚上一起遛狗跑步，附赠零食", City: "上海", Location: "徐汇滨江", MeetTime: time.Now().Add(120 * time.Hour), MaxPeople: 5, Status: constants.MeetupStatusOpen, Participants: []model.MeetupParticipant{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+			{CreatorID: demoUser.ID, Title: "周六世纪公园遛狗局", Description: "带狗狗一起撒欢，欢迎柴犬柯基金毛", City: "上海", Location: "世纪公园2号门", MeetTime: time.Now().Add(72 * time.Hour), DurationMinutes: 120, MaxPeople: 8, Status: constants.MeetupStatusOpen, Participants: []model.MeetupParticipant{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+			{CreatorID: demoUser.ID, Title: "滨江夜跑遛狗", Description: "晚上一起遛狗跑步，附赠零食", City: "上海", Location: "徐汇滨江", MeetTime: time.Now().Add(120 * time.Hour), DurationMinutes: 90, MaxPeople: 5, Status: constants.MeetupStatusOpen, Participants: []model.MeetupParticipant{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
 		}
 		for i := range meetups {
 			if _, err := meetupColl.InsertOne(ctx, meetups[i]); err != nil {

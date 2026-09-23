@@ -27,6 +27,7 @@ const (
 	LogMeetupJoined    = "meetup joined meetup_id=%s user_id=%s"
 	LogMeetupCancelled = "meetup cancelled meetup_id=%s user_id=%s"
 	LogMeetupStatus    = "meetup status meetup_id=%s status=%s"
+	LogMeetupConflict  = "meetup join conflict target_meetup_id=%s user_id=%s conflict_meetup_id=%s conflict_title=%s"
 	LogChatSent        = "chat message sent message_id=%s from_id=%s to_id=%s type=%s"
 	LogAuditCreated    = "audit log created user_id=%s action=%s resource=%s"
 	LogTokenIssued     = "jwt token issued user_id=%s role=%s"

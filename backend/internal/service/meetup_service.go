@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -22,6 +23,40 @@ type MeetupService struct {
 	repo   *repository.MeetupRepository
 	audit  *AuditService
 	logger *slog.Logger
+	// joinMu 串行化所有报名/取消报名：同一用户同时报名两场撞车约伴时，
+	// 后执行的那场一定能读到先成功的报名记录并被拒绝，失败方不会追加参与者记录。
+	joinMu sync.Mutex
+}
+
+// NormalizeDuration 发布时长归一化：未填（0）按 120 分钟，范围 30~480 分钟。
+func NormalizeDuration(minutes int) (int, error) {
+	if minutes == 0 {
+		return constants.MeetupDurationDefault, nil
+	}
+	if minutes < constants.MeetupDurationMin || minutes > constants.MeetupDurationMax {
+		return 0, errors.New("meetup duration out of range")
+	}
+	return minutes, nil
+}
+
+// timeRangesOverlap 两个半开区间 [start,end) 是否相交：首尾相接（一场结束=另一场开始）不算撞车。
+func timeRangesOverlap(start1, end1, start2, end2 time.Time) bool {
+	return start1.Before(end2) && start2.Before(end1)
+}
+
+// findMeetupConflict 在本人有效报名（未取消报名、约伴未取消）中查找与目标时间段撞车的约伴。
+func findMeetupConflict(active []model.Meetup, targetID primitive.ObjectID, start time.Time, durationMinutes int) *model.Meetup {
+	end := start.Add(time.Duration(durationMinutes) * time.Minute)
+	for i := range active {
+		m := &active[i]
+		if m.ID == targetID {
+			continue
+		}
+		if timeRangesOverlap(start, end, m.MeetTime, m.EndTime()) {
+			return m
+		}
+	}
+	return nil
 }
 
 // NewMeetupService 构造注入。
@@ -38,18 +73,23 @@ func (s *MeetupService) Create(ctx context.Context, creatorID primitive.ObjectID
 	if meetTime.Before(time.Now()) {
 		return nil, util.BadRequest("约伴时间不能早于当前时间", errors.New("meet time in past"))
 	}
+	duration, err := NormalizeDuration(req.DurationMinutes)
+	if err != nil {
+		return nil, util.Validation(constants.MsgMeetupDuration, err)
+	}
 	meetup := &model.Meetup{
-		CreatorID:    creatorID,
-		Title:        req.Title,
-		Description:  req.Description,
-		City:         req.City,
-		Location:     req.Location,
-		MeetTime:     meetTime,
-		MaxPeople:    req.MaxPeople,
-		Status:       constants.MeetupStatusOpen,
-		Participants: []model.MeetupParticipant{},
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		CreatorID:       creatorID,
+		Title:           req.Title,
+		Description:     req.Description,
+		City:            req.City,
+		Location:        req.Location,
+		MeetTime:        meetTime,
+		DurationMinutes: duration,
+		MaxPeople:       req.MaxPeople,
+		Status:          constants.MeetupStatusOpen,
+		Participants:    []model.MeetupParticipant{},
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 	if err := s.repo.Create(ctx, meetup); err != nil {
 		return nil, util.Internal(constants.MsgInternalError, err)
@@ -93,8 +133,11 @@ func (s *MeetupService) ListMy(ctx context.Context, creatorID primitive.ObjectID
 	return s.repo.ListByCreator(ctx, creatorID, page, pageSize)
 }
 
-// Join 报名约伴：并发安全依赖 participants.user_id 唯一索引。
+// Join 报名约伴：并发安全依赖 participants.user_id 唯一索引 + joinMu 串行化。
+// 报名前检查本人尚未结束或取消的约伴，时间段撞车则拒绝并指明冲突的是哪一场。
 func (s *MeetupService) Join(ctx context.Context, userID, meetupID primitive.ObjectID, ip string) error {
+	s.joinMu.Lock()
+	defer s.joinMu.Unlock()
 	meetup, err := s.repo.FindByID(ctx, meetupID)
 	if err != nil {
 		if errors.Is(err, constants.ErrNotFound) {
@@ -120,6 +163,24 @@ func (s *MeetupService) Join(ctx context.Context, userID, meetupID primitive.Obj
 	if joinedCount >= meetup.MaxPeople {
 		return util.Conflict(constants.MsgMeetupFull, constants.ErrMeetupFull)
 	}
+	// 撞车检查：只看本人 joined 且约伴未取消的场次；取消报名/取消约伴后时间段已释放。
+	active, err := s.repo.ListActiveByParticipant(ctx, userID)
+	if err != nil {
+		return util.Internal(constants.MsgInternalError, err)
+	}
+	if conflict := findMeetupConflict(active, meetupID, meetup.MeetTime, meetup.EffectiveDuration()); conflict != nil {
+		s.logger.Info(fmt.Sprintf(constants.LogMeetupConflict, meetupID.Hex(), userID.Hex(), conflict.ID.Hex(), conflict.Title))
+		return util.NewAppError(
+			constants.CodeMeetupConflict,
+			fmt.Sprintf("报名时间与已报名的「%s」（%s ~ %s）冲突，请先取消冲突场次或改报其他时间",
+				conflict.Title,
+				conflict.MeetTime.Format("2006-01-02 15:04"),
+				conflict.EndTime().Format("2006-01-02 15:04"),
+			),
+			409,
+			constants.ErrMeetupConflict,
+		)
+	}
 	meetup.Participants = append(meetup.Participants, model.MeetupParticipant{
 		UserID:   userID,
 		JoinedAt: time.Now(),
@@ -138,8 +199,10 @@ func (s *MeetupService) Join(ctx context.Context, userID, meetupID primitive.Obj
 	return nil
 }
 
-// CancelJoin 取消报名。
+// CancelJoin 取消报名：参与者置为 cancelled 即释放占用的时间段，满员场次回退为招募中。
 func (s *MeetupService) CancelJoin(ctx context.Context, userID, meetupID primitive.ObjectID) error {
+	s.joinMu.Lock()
+	defer s.joinMu.Unlock()
 	meetup, err := s.repo.FindByID(ctx, meetupID)
 	if err != nil {
 		if errors.Is(err, constants.ErrNotFound) {
@@ -170,7 +233,10 @@ func (s *MeetupService) CancelJoin(ctx context.Context, userID, meetupID primiti
 }
 
 // UpdateStatus 状态流转（发起人取消/结束）。
+// 与 Join/CancelJoin 共用 joinMu：避免取消约伴与报名并发时，整文档回写把 cancelled 状态覆盖回去。
 func (s *MeetupService) UpdateStatus(ctx context.Context, userID, meetupID primitive.ObjectID, req dto.UpdateMeetupStatusRequest) error {
+	s.joinMu.Lock()
+	defer s.joinMu.Unlock()
 	meetup, err := s.repo.FindByID(ctx, meetupID)
 	if err != nil {
 		if errors.Is(err, constants.ErrNotFound) {

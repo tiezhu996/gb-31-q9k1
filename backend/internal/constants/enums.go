@@ -70,6 +70,13 @@ const (
 	MeetupJoinCancelled MeetupJoinStatus = "cancelled"
 )
 
+// 约伴活动时长（分钟）：发布可不填，缺省 120 分钟，合法范围 30~480 分钟。
+const (
+	MeetupDurationDefault = 120
+	MeetupDurationMin     = 30
+	MeetupDurationMax     = 480
+)
+
 type InteractionType string
 
 const (

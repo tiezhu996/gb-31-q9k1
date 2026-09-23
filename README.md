@@ -134,6 +134,17 @@ curl -sS -X POST http://localhost:3103/api/v1/posts \
   -d '{"content":"今天带柴柴去公园#柴犬日常","type":"image","media":[{"type":"image","url":"https://example.com/a.jpg"}],"topics":["柴犬日常"],"city":"上海","location":"世纪公园"}'
 ```
 
+发布约伴帖（`duration_minutes` 活动时长为分钟数，可不填，默认 120，合法范围 30~480）：
+
+```bash
+curl -sS -X POST http://localhost:3103/api/v1/meetups \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <token>' \
+  -d '{"title":"周六世纪公园遛狗局","city":"上海","location":"世纪公园2号门","meet_time":"2026-09-26 10:00","duration_minutes":90,"max_people":8}'
+```
+
+> 报名撞车规则：服务端按 `[meet_time, meet_time+duration)` 检查本人仍有效（未取消报名、约伴未取消）的报名，时间段相交返回 409（错误码 40905），message 指明冲突场次标题与时间；首尾相接不冲突。取消报名或发起人取消约伴后，该时间段立即释放。
+
 点赞：
 
 ```bash

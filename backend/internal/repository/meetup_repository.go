@@ -91,6 +91,32 @@ func (r *MeetupRepository) List(ctx context.Context, city, status string, page, 
 	return meetups, total, nil
 }
 
+// ListActiveByParticipant 查询本人仍占用时间段的约伴：
+// 参与者状态为 joined，且约伴本身未被取消（open/full/completed 都视为尚未释放）。
+// 取消报名（participants.status=cancelled）或约伴被取消（status=cancelled）后该时间段即释放。
+func (r *MeetupRepository) ListActiveByParticipant(ctx context.Context, userID primitive.ObjectID) ([]model.Meetup, error) {
+	filter := bson.M{
+		"participants": bson.M{
+			"$elemMatch": bson.M{
+				"user_id": userID,
+				"status":  constants.MeetupJoinJoined,
+			},
+		},
+		"status": bson.M{"$ne": constants.MeetupStatusCancelled},
+	}
+	opts := options.Find().SetSort(bson.M{"meet_time": 1})
+	cursor, err := r.coll.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("list active meetups by participant: %w", err)
+	}
+	defer cursor.Close(ctx)
+	meetups := []model.Meetup{}
+	if err := cursor.All(ctx, &meetups); err != nil {
+		return nil, fmt.Errorf("decode active meetups by participant: %w", err)
+	}
+	return meetups, nil
+}
+
 func (r *MeetupRepository) ListByCreator(ctx context.Context, creatorID primitive.ObjectID, page, pageSize int) ([]model.Meetup, int64, error) {
 	filter := bson.M{"creator_id": creatorID}
 	total, err := r.coll.CountDocuments(ctx, filter)

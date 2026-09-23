@@ -81,6 +81,10 @@ func ensureIndexes(ctx context.Context, db *mongo.Database) error {
 			{Keys: bson.D{{Key: "city", Value: 1}, {Key: "status", Value: 1}}},
 			{Keys: bson.D{{Key: "creator_id", Value: 1}}},
 			{Keys: bson.D{{Key: "participants.user_id", Value: 1}}},
+			{Keys: bson.D{{Key: "participants.user_id", Value: 1}, {Key: "status", Value: 1}, {Key: "meet_time", Value: 1}}},
+		},
+		"meetup_join_locks": {
+			{Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)},
 		},
 		"chat_messages": {
 			{Keys: bson.D{{Key: "from_id", Value: 1}, {Key: "to_id", Value: 1}, {Key: "created_at", Value: 1}}},

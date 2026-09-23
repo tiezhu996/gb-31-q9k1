@@ -24,6 +24,7 @@ export default function MeetupsPage() {
     city: '上海',
     location: '',
     meet_time: '',
+    duration_minutes: 120,
     max_people: 5,
   });
 
@@ -33,11 +34,19 @@ export default function MeetupsPage() {
       setError('请填写标题、地点和约伴时间');
       return;
     }
+    if (form.duration_minutes && (form.duration_minutes < 30 || form.duration_minutes > 480)) {
+      setError('活动时长需在 30~480 分钟之间，不填则默认 120 分钟');
+      return;
+    }
     setCreating(true);
     try {
-      await meetupApi.create(form);
+      await meetupApi.create({
+        ...form,
+        // 留空（0）时不传，后端按默认 120 分钟处理
+        duration_minutes: form.duration_minutes > 0 ? form.duration_minutes : undefined,
+      });
       setShowCreate(false);
-      setForm({ title: '', description: '', city: '上海', location: '', meet_time: '', max_people: 5 });
+      setForm({ title: '', description: '', city: '上海', location: '', meet_time: '', duration_minutes: 120, max_people: 5 });
       refetch();
     } catch (e) {
       setError((e as Error).message);
@@ -112,6 +121,20 @@ export default function MeetupsPage() {
                   <label className="text-sm text-gray-600">人数上限</label>
                   <input type="number" min={2} max={50} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" value={form.max_people} onChange={(e) => setForm({ ...form, max_people: Number(e.target.value) })} />
                 </div>
+              </div>
+              <div>
+                <label className="text-sm text-gray-600">活动时长（分钟，30~480，不填默认 120）</label>
+                <input
+                  type="number"
+                  min={30}
+                  max={480}
+                  step={10}
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2"
+                  value={form.duration_minutes}
+                  onChange={(e) => setForm({ ...form, duration_minutes: Number(e.target.value) })}
+                  placeholder="120"
+                />
+                <p className="mt-1 text-xs text-gray-400">报名时会按此时段检查与本人其它约伴是否撞车</p>
               </div>
               {error && <div className="text-sm text-red-500">{error}</div>}
               <button className="w-full rounded-lg bg-brand-500 py-2 text-white disabled:opacity-50" onClick={create} disabled={creating}>

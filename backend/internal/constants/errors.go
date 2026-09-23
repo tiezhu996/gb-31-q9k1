@@ -15,6 +15,8 @@ var (
 	ErrContentRejected  = errors.New("content rejected")
 	ErrMeetupFull       = errors.New("meetup full")
 	ErrMeetupJoined     = errors.New("already joined")
+	ErrMeetupConflict   = errors.New("meetup schedule conflict")
+	ErrJoinLockTimeout  = errors.New("meetup join lock timeout")
 	ErrInteractionDup   = errors.New("interaction duplicate")
 	ErrPetNotOwned      = errors.New("pet not owned")
 	ErrRateLimited      = errors.New("rate limited")

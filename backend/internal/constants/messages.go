@@ -15,6 +15,7 @@ const (
 	MsgContentRejected = "内容包含敏感词，发布失败"
 	MsgMeetupFull      = "约伴名额已满"
 	MsgMeetupJoined    = "您已报名该约伴"
+	MsgMeetupConflict  = "时间与已报名的约伴冲突"
 	MsgRateLimited     = "请求过于频繁，请稍后再试"
 	MsgLoginSuccess    = "登录成功"
 	MsgRegisterSuccess = "注册成功"

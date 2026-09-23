@@ -1,7 +1,9 @@
 package service
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
@@ -48,5 +50,32 @@ func TestIsFull(t *testing.T) {
 	meetup.Participants = append(meetup.Participants, model.MeetupParticipant{UserID: u2, Status: constants.MeetupJoinJoined})
 	if !svc.isFull(meetup) {
 		t.Fatal("expected full with 2/2")
+	}
+}
+
+func TestValidateDuration(t *testing.T) {
+	for _, ok := range []int{30, 120, 480} {
+		if err := ValidateDuration(ok); err != nil {
+			t.Fatalf("ValidateDuration(%d) = %v, want nil", ok, err)
+		}
+	}
+	for _, bad := range []int{0, 29, 481, -120} {
+		if err := ValidateDuration(bad); err == nil {
+			t.Fatalf("ValidateDuration(%d) = nil, want error", bad)
+		}
+	}
+}
+
+func TestConflictMessage(t *testing.T) {
+	meetup := &model.Meetup{
+		Title:    "周六世纪公园遛狗局",
+		MeetTime: time.Date(2026, 9, 26, 10, 0, 0, 0, time.Local),
+	}
+	msg := conflictMessage(meetup)
+	if !strings.Contains(msg, "周六世纪公园遛狗局") {
+		t.Fatalf("conflict message missing title: %s", msg)
+	}
+	if !strings.Contains(msg, "2026-09-26 10:00") {
+		t.Fatalf("conflict message missing meet time: %s", msg)
 	}
 }

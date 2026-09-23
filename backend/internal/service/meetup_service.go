@@ -13,19 +13,31 @@ import (
 	"github.com/petsocial/petsocial/internal/constants"
 	"github.com/petsocial/petsocial/internal/dto"
 	"github.com/petsocial/petsocial/internal/model"
-	"github.com/petsocial/petsocial/internal/repository"
 	"github.com/petsocial/petsocial/internal/util"
 )
 
+// meetupDataStore 约伴仓储接口：线上由 *repository.MeetupRepository 实现，测试可用内存假实现替换。
+type meetupDataStore interface {
+	Create(ctx context.Context, m *model.Meetup) error
+	FindByID(ctx context.Context, id primitive.ObjectID) (*model.Meetup, error)
+	Update(ctx context.Context, m *model.Meetup) error
+	UpdateStatus(ctx context.Context, id primitive.ObjectID, status constants.MeetupStatus) error
+	List(ctx context.Context, city, status string, page, pageSize int) ([]model.Meetup, int64, error)
+	ListByCreator(ctx context.Context, creatorID primitive.ObjectID, page, pageSize int) ([]model.Meetup, int64, error)
+	FindConflictingJoined(ctx context.Context, userID primitive.ObjectID, start, end time.Time, excludeID primitive.ObjectID) ([]model.Meetup, error)
+	AcquireJoinLock(ctx context.Context, userID primitive.ObjectID) (bool, error)
+	ReleaseJoinLock(ctx context.Context, userID primitive.ObjectID) error
+}
+
 // MeetupService 同城遛狗搭子业务：约伴帖 CRUD 与报名。
 type MeetupService struct {
-	repo   *repository.MeetupRepository
+	repo   meetupDataStore
 	audit  *AuditService
 	logger *slog.Logger
 }
 
 // NewMeetupService 构造注入。
-func NewMeetupService(repo *repository.MeetupRepository, audit *AuditService, logger *slog.Logger) *MeetupService {
+func NewMeetupService(repo meetupDataStore, audit *AuditService, logger *slog.Logger) *MeetupService {
 	return &MeetupService{repo: repo, audit: audit, logger: logger}
 }
 
@@ -38,18 +50,26 @@ func (s *MeetupService) Create(ctx context.Context, creatorID primitive.ObjectID
 	if meetTime.Before(time.Now()) {
 		return nil, util.BadRequest("约伴时间不能早于当前时间", errors.New("meet time in past"))
 	}
+	duration := constants.MeetupDurationDefault
+	if req.DurationMinutes != nil {
+		duration = *req.DurationMinutes
+	}
+	if err := ValidateDuration(duration); err != nil {
+		return nil, err
+	}
 	meetup := &model.Meetup{
-		CreatorID:    creatorID,
-		Title:        req.Title,
-		Description:  req.Description,
-		City:         req.City,
-		Location:     req.Location,
-		MeetTime:     meetTime,
-		MaxPeople:    req.MaxPeople,
-		Status:       constants.MeetupStatusOpen,
-		Participants: []model.MeetupParticipant{},
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		CreatorID:       creatorID,
+		Title:           req.Title,
+		Description:     req.Description,
+		City:            req.City,
+		Location:        req.Location,
+		MeetTime:        meetTime,
+		DurationMinutes: duration,
+		MaxPeople:       req.MaxPeople,
+		Status:          constants.MeetupStatusOpen,
+		Participants:    []model.MeetupParticipant{},
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 	if err := s.repo.Create(ctx, meetup); err != nil {
 		return nil, util.Internal(constants.MsgInternalError, err)
@@ -57,6 +77,17 @@ func (s *MeetupService) Create(ctx context.Context, creatorID primitive.ObjectID
 	s.logger.Info(fmt.Sprintf(constants.LogMeetupCreated, meetup.ID.Hex(), creatorID.Hex(), meetup.City))
 	s.audit.Record(ctx, creatorID, "", "meetup.create", "meetup", meetup.ID.Hex(), "发布约伴帖", "")
 	return meetup, nil
+}
+
+// ValidateDuration 校验约伴时长（分钟）：未填按 120，范围 30~480。
+func ValidateDuration(minutes int) error {
+	if minutes < constants.MeetupDurationMin || minutes > constants.MeetupDurationMax {
+		return util.Validation(
+			fmt.Sprintf("活动时长需在 %d~%d 分钟之间", constants.MeetupDurationMin, constants.MeetupDurationMax),
+			constants.ErrValidation,
+		)
+	}
+	return nil
 }
 
 // Get 约伴详情。
@@ -93,8 +124,21 @@ func (s *MeetupService) ListMy(ctx context.Context, creatorID primitive.ObjectID
 	return s.repo.ListByCreator(ctx, creatorID, page, pageSize)
 }
 
-// Join 报名约伴：并发安全依赖 participants.user_id 唯一索引。
+// joinLockWait 获取用户报名锁的最长等待与重试间隔。
+const (
+	joinLockWait  = 3 * time.Second
+	joinLockRetry = 50 * time.Millisecond
+)
+
+// Join 报名约伴：先取用户级锁串行化本人的报名，再依次做
+// 状态/重复报名/时间撞车/满员校验；任一校验失败都不会写入参与者记录。
 func (s *MeetupService) Join(ctx context.Context, userID, meetupID primitive.ObjectID, ip string) error {
+	if err := s.acquireJoinLock(ctx, userID); err != nil {
+		return err
+	}
+	defer func() { _ = s.repo.ReleaseJoinLock(context.Background(), userID) }()
+
+	// 锁内重新读取目标约伴，保证所有判断基于最新状态。
 	meetup, err := s.repo.FindByID(ctx, meetupID)
 	if err != nil {
 		if errors.Is(err, constants.ErrNotFound) {
@@ -117,6 +161,17 @@ func (s *MeetupService) Join(ctx context.Context, userID, meetupID primitive.Obj
 			joinedCount++
 		}
 	}
+	// 时间撞车：本人未结束、未取消的其它约伴时间重叠即拒绝。
+	start := meetup.MeetTime
+	duration := dto.DurationOrDefault(meetup)
+	end := start.Add(time.Duration(duration) * time.Minute)
+	conflicts, err := s.repo.FindConflictingJoined(ctx, userID, start, end, meetupID)
+	if err != nil {
+		return util.Internal(constants.MsgInternalError, err)
+	}
+	if len(conflicts) > 0 {
+		return util.ConflictWithCode(constants.CodeMeetupConflict, conflictMessage(&conflicts[0]), constants.ErrMeetupConflict)
+	}
 	if joinedCount >= meetup.MaxPeople {
 		return util.Conflict(constants.MsgMeetupFull, constants.ErrMeetupFull)
 	}
@@ -136,6 +191,33 @@ func (s *MeetupService) Join(ctx context.Context, userID, meetupID primitive.Obj
 	s.logger.Info(fmt.Sprintf(constants.LogMeetupJoined, meetupID.Hex(), userID.Hex()), "ip", ip)
 	s.audit.Record(ctx, userID, "", "meetup.join", "meetup", meetupID.Hex(), "报名约伴", ip)
 	return nil
+}
+
+// acquireJoinLock 在等待窗口内自旋获取用户报名锁。
+func (s *MeetupService) acquireJoinLock(ctx context.Context, userID primitive.ObjectID) error {
+	deadline := time.Now().Add(joinLockWait)
+	for {
+		locked, err := s.repo.AcquireJoinLock(ctx, userID)
+		if err != nil {
+			return util.Internal(constants.MsgInternalError, err)
+		}
+		if locked {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return util.ConflictWithCode(constants.CodeConflict, "报名处理中，请稍后重试", constants.ErrJoinLockTimeout)
+		}
+		select {
+		case <-ctx.Done():
+			return util.Internal(constants.MsgInternalError, ctx.Err())
+		case <-time.After(joinLockRetry):
+		}
+	}
+}
+
+// conflictMessage 生成撞车提示，说明与哪场约伴冲突。
+func conflictMessage(c *model.Meetup) string {
+	return fmt.Sprintf("时间与已报名的约伴「%s」（%s）冲突", c.Title, c.MeetTime.Format("2006-01-02 15:04"))
 }
 
 // CancelJoin 取消报名。

@@ -25,5 +25,6 @@ const (
 	CodeMeetupFull        = 40902
 	CodeMeetupJoined      = 40903
 	CodeInteractionExists = 40904
+	CodeMeetupConflict    = 40905
 	CodeInvalidMediaType  = 42202
 )

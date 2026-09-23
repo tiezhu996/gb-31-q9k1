@@ -111,6 +111,8 @@ export interface Meetup {
   city: string;
   location: string;
   meet_time: string;
+  end_time: string;
+  duration_minutes: number;
   max_people: number;
   status: MeetupStatus;
   joined_count: number;

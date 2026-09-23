@@ -26,6 +26,9 @@ func NewAuditService(repo *repository.AuditRepository, logger *slog.Logger) *Aud
 
 // Record 记录审计日志。
 func (s *AuditService) Record(ctx context.Context, userID primitive.ObjectID, username, action, resource, resourceID, detail, ip string) {
+	if s == nil || s.repo == nil {
+		return
+	}
 	log := &model.AuditLog{
 		UserID:     userID,
 		Username:   username,

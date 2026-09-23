@@ -70,6 +70,13 @@ const (
 	MeetupJoinCancelled MeetupJoinStatus = "cancelled"
 )
 
+// 约伴活动时长（分钟）：发布时未填按默认值，限制在最小/最大范围内。
+const (
+	MeetupDurationDefault = 120
+	MeetupDurationMin     = 30
+	MeetupDurationMax     = 480
+)
+
 type InteractionType string
 
 const (

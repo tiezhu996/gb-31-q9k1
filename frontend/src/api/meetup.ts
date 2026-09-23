@@ -7,7 +7,7 @@ export const meetupApi = {
   get: (id: string) => http.get<Meetup>(`/meetups/${id}`),
   mine: (params?: { page?: number; page_size?: number }) =>
     http.get<PageData<Meetup>>('/meetups/me', params),
-  create: (data: { title: string; description?: string; city: string; location: string; meet_time: string; max_people: number }) =>
+  create: (data: { title: string; description?: string; city: string; location: string; meet_time: string; duration_minutes?: number; max_people: number }) =>
     http.post<Meetup>('/meetups', data),
   join: (id: string) => http.post<{ message: string }>(`/meetups/${id}/join`),
   cancelJoin: (id: string) => http.delete<{ message: string }>(`/meetups/${id}/join`),

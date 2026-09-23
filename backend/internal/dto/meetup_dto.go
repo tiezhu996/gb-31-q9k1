@@ -10,12 +10,13 @@ import (
 
 // CreateMeetupRequest 发布约伴帖入参。
 type CreateMeetupRequest struct {
-	Title       string `json:"title" binding:"required,min=1,max=64"`
-	Description string `json:"description" binding:"max=500"`
-	City        string `json:"city" binding:"required,max=32"`
-	Location    string `json:"location" binding:"required,max=128"`
-	MeetTime    string `json:"meet_time" binding:"required"`
-	MaxPeople   int    `json:"max_people" binding:"required,min=2,max=50"`
+	Title           string `json:"title" binding:"required,min=1,max=64"`
+	Description     string `json:"description" binding:"max=500"`
+	City            string `json:"city" binding:"required,max=32"`
+	Location        string `json:"location" binding:"required,max=128"`
+	MeetTime        string `json:"meet_time" binding:"required"`
+	DurationMinutes *int   `json:"duration_minutes" binding:"omitempty,min=30,max=480"`
+	MaxPeople       int    `json:"max_people" binding:"required,min=2,max=50"`
 }
 
 // UpdateMeetupStatusRequest 约伴状态流转入参。
@@ -25,20 +26,22 @@ type UpdateMeetupStatusRequest struct {
 
 // MeetupResponse 约伴出参。
 type MeetupResponse struct {
-	ID           string                 `json:"id"`
-	CreatorID    string                 `json:"creator_id"`
-	CreatorName  string                 `json:"creator_name"`
-	Title        string                 `json:"title"`
-	Description  string                 `json:"description"`
-	City         string                 `json:"city"`
-	Location     string                 `json:"location"`
-	MeetTime     string                 `json:"meet_time"`
-	MaxPeople    int                    `json:"max_people"`
-	Status       constants.MeetupStatus `json:"status"`
-	JoinedCount  int                    `json:"joined_count"`
-	Joined       bool                   `json:"joined"`
-	Participants []MeetupParticipantDTO `json:"participants"`
-	CreatedAt    string                 `json:"created_at"`
+	ID              string                 `json:"id"`
+	CreatorID       string                 `json:"creator_id"`
+	CreatorName     string                 `json:"creator_name"`
+	Title           string                 `json:"title"`
+	Description     string                 `json:"description"`
+	City            string                 `json:"city"`
+	Location        string                 `json:"location"`
+	MeetTime        string                 `json:"meet_time"`
+	EndTime         string                 `json:"end_time"`
+	DurationMinutes int                    `json:"duration_minutes"`
+	MaxPeople       int                    `json:"max_people"`
+	Status          constants.MeetupStatus `json:"status"`
+	JoinedCount     int                    `json:"joined_count"`
+	Joined          bool                   `json:"joined"`
+	Participants    []MeetupParticipantDTO `json:"participants"`
+	CreatedAt       string                 `json:"created_at"`
 }
 
 // MeetupParticipantDTO 参与者出参。
@@ -47,6 +50,14 @@ type MeetupParticipantDTO struct {
 	Username string                     `json:"username"`
 	JoinedAt string                     `json:"joined_at"`
 	Status   constants.MeetupJoinStatus `json:"status"`
+}
+
+// DurationOrDefault 历史约伴帖可能没有时长字段，缺省按 120 分钟。
+func DurationOrDefault(m *model.Meetup) int {
+	if m.DurationMinutes <= 0 {
+		return constants.MeetupDurationDefault
+	}
+	return m.DurationMinutes
 }
 
 // ToMeetupResponse 模型转出参。
@@ -67,21 +78,25 @@ func ToMeetupResponse(m *model.Meetup, creatorName string, currentUserID primiti
 			Status:   p.Status,
 		})
 	}
+	duration := DurationOrDefault(m)
+	endTime := m.MeetTime.Add(time.Duration(duration) * time.Minute)
 	return MeetupResponse{
-		ID:           m.ID.Hex(),
-		CreatorID:    m.CreatorID.Hex(),
-		CreatorName:  creatorName,
-		Title:        m.Title,
-		Description:  m.Description,
-		City:         m.City,
-		Location:     m.Location,
-		MeetTime:     m.MeetTime.Format("2006-01-02 15:04"),
-		MaxPeople:    m.MaxPeople,
-		Status:       m.Status,
-		JoinedCount:  joinedCount,
-		Joined:       joined,
-		Participants: participants,
-		CreatedAt:    m.CreatedAt.Format("2006-01-02 15:04:05"),
+		ID:              m.ID.Hex(),
+		CreatorID:       m.CreatorID.Hex(),
+		CreatorName:     creatorName,
+		Title:           m.Title,
+		Description:     m.Description,
+		City:            m.City,
+		Location:        m.Location,
+		MeetTime:        m.MeetTime.Format("2006-01-02 15:04"),
+		EndTime:         endTime.Format("2006-01-02 15:04"),
+		DurationMinutes: duration,
+		MaxPeople:       m.MaxPeople,
+		Status:          m.Status,
+		JoinedCount:     joinedCount,
+		Joined:          joined,
+		Participants:    participants,
+		CreatedAt:       m.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 }
 

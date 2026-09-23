@@ -54,6 +54,11 @@ func Conflict(message string, err error) *AppError {
 	return NewAppError(40900, message, 409, err)
 }
 
+// ConflictWithCode 409 业务错误，携带细分错误码（如约伴撞车 40905）。
+func ConflictWithCode(code int, message string, err error) *AppError {
+	return NewAppError(code, message, 409, err)
+}
+
 // Internal 500 业务错误。
 func Internal(message string, err error) *AppError {
 	return NewAppError(50000, message, 500, err)

@@ -1,0 +1,32 @@
+package constants
+
+// messages.go 同时承载接口返回文案、日志文案、错误提示文案（屎山耦合点之一）。
+const (
+	MsgOK              = "ok"
+	MsgSuccess         = "操作成功"
+	MsgInvalidParam    = "参数校验失败，请检查输入"
+	MsgUnauthorized    = "未登录或登录已过期"
+	MsgForbidden       = "没有权限执行该操作"
+	MsgNotFound        = "请求的资源不存在"
+	MsgInternalError   = "系统繁忙，请稍后重试"
+	MsgUserExists      = "用户名已存在，请更换用户名"
+	MsgWrongPassword   = "用户名或密码错误"
+	MsgUserBanned      = "账号已被封禁，请联系管理员"
+	MsgContentRejected = "内容包含敏感词，发布失败"
+	MsgMeetupFull      = "约伴名额已满"
+	MsgMeetupJoined    = "您已报名该约伴"
+	MsgRateLimited     = "请求过于频繁，请稍后再试"
+	MsgLoginSuccess    = "登录成功"
+	MsgRegisterSuccess = "注册成功"
+	MsgPostCreated     = "动态发布成功"
+	MsgPostRejected    = "动态审核不通过"
+	MsgPostApproved    = "动态审核通过"
+	MsgFollowSuccess   = "关注成功"
+	MsgUnfollowSuccess = "取消关注成功"
+	MsgJoinSuccess     = "报名成功"
+	MsgCancelJoin      = "已取消报名"
+	MsgPetCreated      = "宠物档案创建成功"
+	MsgMeetupCreated   = "约伴帖发布成功"
+	MsgCommentAdded    = "评论发布成功"
+	MsgMediaUploaded   = "媒体上传成功"
+)
